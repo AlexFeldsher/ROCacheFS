@@ -123,6 +123,8 @@ int CacheFS_init(int blocks_num, cache_algo_t cache_algo, double f_old , double 
 	PART_NEW = f_new;
 
 	pBlockArray = (Block**) malloc(sizeof(Block*)*blocks_num);
+	if (pBlockArray == nullptr)
+		return -1;
 	for (int i = 0; i < blocks_num; ++i)
 		pBlockArray[i] = nullptr;
 
@@ -151,6 +153,8 @@ int CacheFS_destroy()
 	g_blocks_counter = 0;
 	g_hit_counter = 0;
 	g_miss_counter = 0;
+
+	return 0;
 }
 
 
@@ -173,7 +177,12 @@ int CacheFS_open(const char *pathname)
 	if (fd == -1)
 		return -1;
 
-	file_block_map[fd] = new std::set<Block *>;
+	try {
+		file_block_map[fd] = new std::set<Block *>;
+	} catch (std::bad_alloc e)
+	{
+		return -1;
+	}
 	fd_path_map[fd] = pathname;
 
 	return fd;
@@ -229,7 +238,7 @@ int CacheFS_pread(int file_id, void *buf, size_t count, off_t offset)
 	{
 		// get block pointer
 		block_p = get_block(file_id, block_num);
-		if (block_p->data_size == -1)
+		if (block_p == nullptr || block_p->data_size == -1)
 			return -1;
 
 		// read data
@@ -322,14 +331,21 @@ static int get_block_size()
  * Creates a new block
  * @param file_id file descriptor
  * @param block_num the number of the block
- * @return iterator pointing to the block
+ * @return pointer to a new block, nullptr when failed
  */
 static Block* create_block(int file_id, int block_num)
 {
 	make_room();
 	DEBUG("Creating block; file " << file_id << " block_num " << block_num);
 	int id = get_free_id();
-	Block* new_block = new Block(file_id, block_num, BLOCK_SIZE, id);
+	Block * new_block;
+	try
+	{
+		new_block = new Block(file_id, block_num, BLOCK_SIZE, id);
+	} catch (std::bad_alloc e)
+	{
+		return nullptr;
+	}
 
 	pBlockArray[id] = new_block;
 
@@ -495,7 +511,7 @@ static int get_free_id()
  * Creates it if needed
  * @param file_id file descriptor
  * @param block_num the number of the block
- * @return pointer to the requested block
+ * @return pointer to the requested block, nullptr when failed
  */
 static Block* get_block(int file_id, int block_num)
 {
