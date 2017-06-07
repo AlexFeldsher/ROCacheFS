@@ -91,7 +91,7 @@ static int get_block_size();
 static Block* create_block(int file_id, int block_num);
 static void LRU_update_queue(Block& block_p);
 static void LFU_update_queue(Block& block_p);
-static void FBR_update_queue(Block& block_p);
+static void FBR_update_queue(Block* block_p);
 static void make_room();
 static void LRU_make_room();
 static void LFU_make_room();
@@ -378,34 +378,37 @@ static void LRU_update_queue(Block& block)
 static void LFU_update_queue(Block& block)
 {
 	block.reference_num++;
-	// if block not in queue add it
+	// remove block from queue
 	auto block_iter = std::find(block_queue.begin(), block_queue.end(), block.id);
+	if (block_iter != block_queue.end())
+		block_queue.erase(block_iter);
+
+	// find first block with reference count higher than this block
+	block_iter = std::find_if(block_queue.begin(), block_queue.end(), [&block](int& id)->bool{
+		return pBlockArray[id]->reference_num > block.reference_num;
+	});
+
+	// if this block has the highest reference count, insert it to the end of the queue
+	// otherwise insert it before the a block with a higher reference count
 	if (block_iter == block_queue.end())
 		block_queue.push_back(block.id);
+	else
+		block_queue.insert(block_iter, block.id);
 
-	DEBUG("Sorting block queue");
-	// sort the block queue according to the block reference counter
-	std::sort(block_queue.begin(), block_queue.end(), [](int &a_id, int &b_id) {
-		// get pointers to a and b blocks
-		Block& a_block_p = *pBlockArray[a_id];
-		Block& b_block_p = *pBlockArray[b_id];
-
-		return a_block_p.reference_num < b_block_p.reference_num;
-	});
 }
 
 /**
  * Updates the blocks queue and the block reference counter according to the FBR algorithm
  * @param block block object
  */
-static void FBR_update_queue(Block& block)
+static void FBR_update_queue(Block* block)
 {
 	// update references number only in blocks not in the new partition
-	if (!FBR_block_is_new(block))
-		block.reference_num++;
+	if (!FBR_block_is_new(*block))
+		block->reference_num++;
 
 	// update the queue according to the LRU algorithm
-	LRU_update_queue(block);
+	LRU_update_queue(*block);
 }
 
 /**
@@ -427,7 +430,7 @@ static bool FBR_block_is_new(Block& block)
 	// The new blocks are at the end of the queue
 	// This calculates the block position in percentage from the end of the queue
 	// last element = 0.0, first element = 1.0
-	double pos = (block_queue.size() - (i + 1))/block_queue.size();
+	double pos = ((double)(block_queue.size() - (i + 1)))/block_queue.size();
 
 	return (pos < PART_NEW);
 }
@@ -481,16 +484,15 @@ static void FBR_make_room()
 	// iterate over the old partition and find the block with the min reference number
 	for (i = 1 ; (i + 1)/block_queue.size() < PART_OLD && i < block_queue.size(); ++i)
 	{
-		new_ref = pBlockArray[i]->reference_num;
+		new_ref = pBlockArray[block_queue[i]]->reference_num;
 		if (new_ref < min_ref)
 		{
 			min_ref = new_ref;
-			min_block_id = i;
+			min_block_id = block_queue[i];
 		}
 	}
 
 	DEBUG("found block to remove; id=" << min_block_id << ", ref=" << min_ref);
-
 	remove_block(min_block_id);
 }
 
@@ -549,7 +551,7 @@ static void update_queue(Block* block_p)
 	else if (CACHE_ALGO == LFU)
 		LFU_update_queue(*block_p);
 	else if (CACHE_ALGO == FBR)
-		FBR_update_queue(*block_p);
+		FBR_update_queue(block_p);
 }
 
 /**
@@ -561,7 +563,8 @@ static void remove_block(int block_id)
 {
 	DEBUG("Removing id #" << block_id);
 	// remove block from queue
-	block_queue.pop_front();
+	auto block_iter = std::find(block_queue.begin(), block_queue.end(), block_id);
+	block_queue.erase(block_iter);
 
 	Block* block_p = pBlockArray[block_id];
 
