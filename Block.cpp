@@ -1,12 +1,12 @@
 #include "Block.h"
 #include <cstring>
 #include <cstdlib>
-#include "debug.h"
+#include <new>
 
 /**
  * Default constructor
  */
-Block::Block() : file_id(-1), block_num(-1), _block_size(-1), data_size(0) {}
+Block::Block() : reference_num(0), file_id(-1), block_num(-1), data_size(0), _block_size(-1) {}
 
 /**
  * Block constructor
@@ -15,15 +15,13 @@ Block::Block() : file_id(-1), block_num(-1), _block_size(-1), data_size(0) {}
  * @param block_size the size of the block
  * @param id unique block id
  */
-Block::Block(int file_id, int block_num, int block_size, int id) : file_id(file_id), block_num(block_num),
-												   _block_size(block_size), id(id)
+Block::Block(int file_id, int block_num, blksize_t block_size, int id) : reference_num(0), file_id(file_id), block_num(block_num),
+												    id(id), _block_size(block_size)
 {
 	buffer = aligned_alloc(_block_size, _block_size);
-	DEBUG("pread(" << file_id << ",buffer,"<<_block_size << "," << (_block_size*block_num) << ")");
+	if (buffer == nullptr)
+		throw std::bad_alloc();
 	data_size = pread(file_id, buffer, _block_size, (block_num*_block_size));
-	DEBUG("pread " << data_size);
-	//for (int i = 0; i < data_size; ++i)
-	//	DEBUG(((char*)buffer)[i]);
 }
 
 /**
@@ -38,8 +36,8 @@ Block::~Block()
  * Copy constructor
  * @param rhs the block to copy
  */
-Block::Block(const Block& rhs) : file_id(rhs.file_id), block_num(rhs.block_num), _block_size(rhs._block_size),
-						  reference_num(rhs.reference_num), id(rhs.id)
+Block::Block(const Block& rhs) : reference_num(rhs.reference_num), file_id(rhs.file_id),
+								 block_num(rhs.block_num), id(rhs.id), _block_size(rhs._block_size)
 {
 	free(buffer);
 	buffer = aligned_alloc(_block_size, _block_size);
@@ -51,8 +49,8 @@ Block::Block(const Block& rhs) : file_id(rhs.file_id), block_num(rhs.block_num),
  * Move constructor
  * @param rhs the block to move
  */
-Block::Block(Block&& rhs) : file_id(rhs.file_id), block_num(rhs.block_num), _block_size(rhs._block_size),
-					 reference_num(rhs.reference_num), id(rhs.id)
+Block::Block(Block&& rhs) : reference_num(rhs.reference_num), file_id(rhs.file_id), block_num(rhs.block_num),
+							id(rhs.id), _block_size(rhs._block_size)
 {
 	free(buffer);
 	buffer= rhs.buffer;
@@ -103,9 +101,9 @@ Block& Block::operator=(Block&& rhs)
  * First uses the file descriptor, if the file descriptors equal then uses the block id
  * @param lhs block object
  * @param rhs block object
- * @return true if lhs.fd<rhs.fd, or if lhs.fd==rhs.fd then true lhs.block_id<rhs.block_id otherwise false
+ * @return true if lhs.id < rhs.id, otherwise false
  */
-bool operator< (const Block& lhs, const Block& rhs)
+inline bool operator< (const Block& lhs, const Block& rhs)
 {
 	return lhs.id < rhs.id;
 }
@@ -116,7 +114,7 @@ bool operator< (const Block& lhs, const Block& rhs)
  * @param rhs block object
  * @return true if block IDs equal, otherwise false.
  */
-bool operator== (const Block& lhs, const Block& rhs)
+inline bool operator== (const Block& lhs, const Block& rhs)
 {
 	return lhs.id == rhs.id;
 }

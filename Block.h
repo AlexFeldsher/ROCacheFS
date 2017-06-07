@@ -2,8 +2,14 @@
 #define CACHEFS_BLOCK_H
 
 #include <unistd.h>
+#include <sys/stat.h>
 
 struct Block {
+	/**
+	 * The number of times this block was referenced
+	 */
+	size_t reference_num;
+
 	/**
 	 * The file the block belongs to
 	 */
@@ -18,11 +24,6 @@ struct Block {
 	 * Unique block id
 	 */
 	int id;
-
-	/**
-	 * The number of times this block was referenced
-	 */
-	unsigned long long reference_num = 0;
 
 	/**
 	 * Holds the block data
@@ -46,7 +47,7 @@ struct Block {
 	 * @param block_size the size of the block
 	 * @param id unique block id
 	 */
-	Block(int file_id, int block_num, int block_size, int id);
+	Block(int file_id, int block_num, blksize_t block_size, int id);
 
 	/**
 	 * Destructor
@@ -100,7 +101,7 @@ private:
 	/**
 	 * The file system block size
 	 */
-	int _block_size;
+	blksize_t _block_size;
 
 	/**
 	 * Copy the basic data members

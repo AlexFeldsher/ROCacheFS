@@ -1,5 +1,5 @@
 CC=g++
-CFLAGS=-std=c++11 -DNDEBUG
+CFLAGS=-Wall -Wextra -std=c++11
 OBJECTS=CacheFS.o Block.o
 FILES=Makefile README CacheFS.cpp Block.h Block.cpp Answers.pdf
 LIB=CacheFS.a
@@ -9,9 +9,9 @@ ARFLAGS=rcs
 lib: $(OBJECTS)
 	$(AR) $(ARFLAGS) $(LIB) $(OBJECTS)
 	rm -f $(OBJECTS)
-Block.o: Block.h Block.cpp debug.h
+Block.o: Block.h Block.cpp
 	$(CC) $(CFLAGS) -c Block.cpp
-CacheFS.o: CacheFS.h CacheFS.h debug.h
+CacheFS.o: CacheFS.h CacheFS.h
 	$(CC) $(CFLAGS) -c CacheFS.cpp
 tar: $(FILES)
 	tar -cvf ex4.tar $(FILES)

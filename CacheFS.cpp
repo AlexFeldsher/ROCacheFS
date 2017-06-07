@@ -1,72 +1,67 @@
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <set>
-#include <vector>
 #include <map>
 #include <algorithm>
 #include <deque>
-#include <sstream>
 #include <iostream>
 #include <cstring>
 #include "CacheFS.h"
 #include "Block.h"
-#include "debug.h"
 
+//--------------------------- definitions ----------------------------------------
 /**
  * Path to the temporary folder
  */
 // TODO: update before submit
 #define TMP_PATH "/tmp"
-
 /**
  * Generates a caches misses log string
  */
 #define MISSES_LOG(x) std::string("Misses number: " + std::to_string(x) + ".\n")
-
 /**
  * Generates a caches hits log string
  */
 #define HITS_LOG(x) std::string("Hits number: " + std::to_string(x) + ".\n")
+/**
+ * Log file permissions
+ */
+#define LOG_PERM 0666
 
+//---------------------------- global variables -----------------------------------
 /**
  * Holds the file system block size
  */
-int BLOCK_SIZE;
-
+blksize_t BLOCK_SIZE;
 /**
  * Max number of blocks
  */
 int MAX_BLOCKS;
-
 /**
  * Counter of the blocks currently saved in the cache
  */
 int g_blocks_counter = 0;
-
 /**
  * Data structure used to map a file descriptor to its blocks
  * fd->set<Block>
  */
 std::map<int, std::set<Block*>*> file_block_map;
-
 /**
  * Queue of pairs representing blocks, <file_descriptor, block_id>
  */
 std::deque<int> block_queue;
-
+/**
+ * Array of block object pointers, each block is allocated to a free cell where block ID number == cell index
+ */
 Block** pBlockArray;
-
 /**
  * Maps file descriptors to path strings
  */
 std::map<int, std::string> fd_path_map;
-
 /**
  * The cache fs algorithm
  */
 cache_algo_t CACHE_ALGO;
-
 /**
  * The percentage of blocks in the old partition (rounding down) relevant in FBR algorithm only
  */
@@ -75,19 +70,18 @@ double PART_OLD;
  * The percentage of blocks in the new partition (rounding down) relevant in FBR algorithm only
  */
 double PART_NEW;
-
 /**
  * Counter for the cache hits
  */
 size_t g_hit_counter = 0;
-
 /**
  * Counter for the cache misses
  */
 size_t g_miss_counter = 0;
 
 //--------------------------------- function definitions -----------------------------------------------
-static int get_block_size();
+
+static blksize_t get_block_size();
 static Block* create_block(int file_id, int block_num);
 static void LRU_update_queue(Block& block_p);
 static void LFU_update_queue(Block& block_p);
@@ -102,6 +96,8 @@ static Block* get_block(int file_id, int block_num);
 static void update_queue(Block* block_p);
 static void remove_block(int block_id);
 
+//------------------------------- CacheFS functions implementation ----------------------------------
+
 /**
  * Initialize CacheFS
  * @param blocks_num
@@ -113,15 +109,16 @@ static void remove_block(int block_id);
 int CacheFS_init(int blocks_num, cache_algo_t cache_algo, double f_old , double f_new)
 {
 	BLOCK_SIZE = get_block_size();
-	DEBUG("block size = " << BLOCK_SIZE);
 	if (BLOCK_SIZE == -1)
 		return -1;
 
+	// initialize global variables
 	MAX_BLOCKS = blocks_num;
 	CACHE_ALGO = cache_algo;
 	PART_OLD = f_old;
 	PART_NEW = f_new;
 
+	// Initialize the block array
 	pBlockArray = (Block**) malloc(sizeof(Block*)*blocks_num);
 	if (pBlockArray == nullptr)
 		return -1;
@@ -143,20 +140,20 @@ int CacheFS_destroy()
 	for (int i = 0; i < MAX_BLOCKS; ++i)
 		if (pBlockArray[i] != nullptr)
 			delete pBlockArray[i];
-	delete pBlockArray;
+	free(pBlockArray);
 
 	// clear data structures
 	block_queue.clear();
 	file_block_map.clear();
 	fd_path_map.clear();
 
+	// reset global counters
 	g_blocks_counter = 0;
 	g_hit_counter = 0;
 	g_miss_counter = 0;
 
 	return 0;
 }
-
 
 /**
  * File open operation.
@@ -167,7 +164,7 @@ int CacheFS_destroy()
 int CacheFS_open(const char *pathname)
 {
 	// TODO: add /tmp path validation
-	// if file was opened already, return its file descriptor
+	// if file is open, return its file descriptor
 	for (auto fd : fd_path_map)
 		if (strcmp(pathname, fd.second.c_str()) == 0)
 			return fd.first;
@@ -177,12 +174,15 @@ int CacheFS_open(const char *pathname)
 	if (fd == -1)
 		return -1;
 
+	// initialize file map key
 	try {
 		file_block_map[fd] = new std::set<Block *>;
 	} catch (std::bad_alloc e)
 	{
 		return -1;
 	}
+
+	// safe file descriptor path
 	fd_path_map[fd] = pathname;
 
 	return fd;
@@ -194,10 +194,9 @@ int CacheFS_open(const char *pathname)
  * @param file_id file to close
  * @return 0 if successful, otherwise -1.
  */
-// TODO: blocks should not be removed
 int CacheFS_close(int file_id)
 {
-	// find file in the open files set
+	// find file in the open files data structure
 	auto file_iter = file_block_map.find(file_id);
 	if (file_iter == file_block_map.end())
 		return -1;
@@ -208,30 +207,33 @@ int CacheFS_close(int file_id)
 	if (ret != -1)
 	{
 		delete file_iter->second;	// delete the file block set
-		file_block_map.erase(file_iter);    // remove file from open files set
+		file_block_map.erase(file_iter);	// remove file descriptor from open files data structure
 	}
 
-	return ret;
+	return 0;
 }
-
 
 int CacheFS_pread(int file_id, void *buf, size_t count, off_t offset)
 {
+	if (offset < 0)
+		return -1;
 
 	// check that the file was opened
 	auto elem = file_block_map.find(file_id);
-	DEBUG("found file " << (elem != file_block_map.end()));
 	if (elem == file_block_map.end())
 		return -1;
+
+	if (count == 0)
+		return 0;
 
 	// calculate first and last block ID numbers
 	int first_block_num = (offset/BLOCK_SIZE);
 	int last_block_num = ((offset + count)/BLOCK_SIZE);
 
-	int block_num, buffer_index, out_index = 0, pos;
-	char* out_buffer = (char*) buf;
+	size_t pos, out_index = 0;
+	int block_num, buffer_index;
+	char* output_buffer = (char*) buf;
 	Block* block_p;
-	std::set<Block*>& block_set = *file_block_map[file_id];
 
 	// iterate over blocks and read data
 	for (block_num = first_block_num; block_num <= last_block_num && out_index < count; ++block_num)
@@ -241,13 +243,13 @@ int CacheFS_pread(int file_id, void *buf, size_t count, off_t offset)
 		if (block_p == nullptr || block_p->data_size == -1)
 			return -1;
 
-		// read data
+		// read data (min(block_size, buffer_data_size) bytes) from block buffer
 		for (buffer_index = 0; buffer_index < BLOCK_SIZE && buffer_index < block_p->data_size; ++buffer_index)
 		{
 			pos = (block_num*BLOCK_SIZE) + buffer_index;
-			if (pos >= offset && pos < offset + count)
+			if (pos >= (size_t)offset && pos < offset + count)
 			{
-				out_buffer[out_index++] = ((char*)block_p->buffer)[buffer_index];
+				output_buffer[out_index++] = ((char*)block_p->buffer)[buffer_index];
 			}
 		}
 
@@ -265,19 +267,19 @@ int CacheFS_pread(int file_id, void *buf, size_t count, off_t offset)
  */
 int CacheFS_print_cache (const char *log_path)
 {
-	// TODO: append or truncate?
-
-	int log_fd = open(log_path, O_CREAT | O_WRONLY | O_APPEND, 0666);
+	// open log file
+	int log_fd = open(log_path, O_CREAT | O_WRONLY | O_APPEND, LOG_PERM);
 	if (log_fd == -1)
 		return -1;
 
 	std::string log_line = "";
 	Block* block_p;
 
+	// iterate over the block queue from the end
 	for (int i = block_queue.size()-1; i >= 0; --i)
 	{
-		// create string
 		block_p = pBlockArray[block_queue[i]];
+		// create string
 		log_line += fd_path_map[block_p->file_id] + " " + std::to_string(block_p->block_num) + "\n";
 		ssize_t ret = write(log_fd, log_line.c_str(), log_line.length());
 		if (ret == -1)
@@ -297,10 +299,12 @@ int CacheFS_print_cache (const char *log_path)
  */
 int CacheFS_print_stat (const char *log_path)
 {
-	int log_fd = open(log_path, O_CREAT | O_WRONLY | O_APPEND, 0666);
+	// open log file
+	int log_fd = open(log_path, O_CREAT | O_WRONLY | O_APPEND, LOG_PERM);
 	if (log_fd == -1)
 		return -1;
 
+	// generate log string
 	std::string log_str = HITS_LOG(g_hit_counter);
 	log_str += MISSES_LOG(g_miss_counter);
 
@@ -312,11 +316,12 @@ int CacheFS_print_stat (const char *log_path)
 	return close_ret;
 }
 
+//--------------------------- static functions implementation ------------------------------
 /**
  * Returns the file system block size
  * @return if successful the block size, otherwise -1.
  */
-static int get_block_size()
+static blksize_t get_block_size()
 {
 	struct stat fi;
 	int ret = stat(TMP_PATH, &fi);
@@ -335,10 +340,12 @@ static int get_block_size()
  */
 static Block* create_block(int file_id, int block_num)
 {
-	make_room();
-	DEBUG("Creating block; file " << file_id << " block_num " << block_num);
-	int id = get_free_id();
 	Block * new_block;
+
+	make_room();
+	int id = get_free_id();
+
+	// create new block
 	try
 	{
 		new_block = new Block(file_id, block_num, BLOCK_SIZE, id);
@@ -347,10 +354,11 @@ static Block* create_block(int file_id, int block_num)
 		return nullptr;
 	}
 
+	// add new block to data structures
 	pBlockArray[id] = new_block;
+	file_block_map[file_id]->insert(new_block);
 
-	auto blocks_set = file_block_map[file_id];
-	blocks_set->insert(new_block);
+	// increase global block counter
 	g_blocks_counter++;
 	return new_block;
 }
@@ -361,13 +369,12 @@ static Block* create_block(int file_id, int block_num)
  */
 static void LRU_update_queue(Block& block)
 {
-	DEBUG("Updating LRU; file " << block.file_id << " block " << block.block_num);
+	// remove block from queue
 	auto block_iter = std::find(block_queue.begin(), block_queue.end(), block.id);
 	if (block_iter != block_queue.end())
-	{
-		DEBUG("found block in LRU, removing...");
 		block_queue.erase(block_iter);
-	}
+
+	// add it to the back of the queue
 	block_queue.push_back(block.id);
 }
 
@@ -378,6 +385,7 @@ static void LRU_update_queue(Block& block)
 static void LFU_update_queue(Block& block)
 {
 	block.reference_num++;
+
 	// remove block from queue
 	auto block_iter = std::find(block_queue.begin(), block_queue.end(), block.id);
 	if (block_iter != block_queue.end())
@@ -394,21 +402,20 @@ static void LFU_update_queue(Block& block)
 		block_queue.push_back(block.id);
 	else
 		block_queue.insert(block_iter, block.id);
-
 }
 
 /**
  * Updates the blocks queue and the block reference counter according to the FBR algorithm
- * @param block block object
+ * @param block_p block object pointer
  */
-static void FBR_update_queue(Block* block)
+static void FBR_update_queue(Block* block_p)
 {
 	// update references number only in blocks not in the new partition
-	if (!FBR_block_is_new(*block))
-		block->reference_num++;
+	if (!FBR_block_is_new(*block_p))
+		block_p->reference_num++;
 
 	// update the queue according to the LRU algorithm
-	LRU_update_queue(*block);
+	LRU_update_queue(*block_p);
 }
 
 /**
@@ -418,12 +425,12 @@ static void FBR_update_queue(Block* block)
  */
 static bool FBR_block_is_new(Block& block)
 {
-	int i;
+	size_t i;
 	// find block index in block queue
-	for (i = 0; i < block_queue.size(); ++i)
-		if (block.id == block_queue[i])
-			break;
+	for (i = 0; i < block_queue.size() && block.id != block_queue[i]; ++i)
+		;
 
+	// block isn't in the block queue => not in new partition
 	if (i == block_queue.size())
 		return false;
 
@@ -436,13 +443,13 @@ static bool FBR_block_is_new(Block& block)
 }
 
 /**
- * Makes room according to the cache algorithm in the cache data structure if needed.
+ * Makes room in the cache according to the cache algorithm in the cache data structure if needed.
  */
 static void make_room()
 {
 	if (g_blocks_counter < MAX_BLOCKS)
 		return;
-	DEBUG("making room");
+
 	if (CACHE_ALGO == LRU)
 		LRU_make_room();
 	else if (CACHE_ALGO == LFU)
@@ -452,7 +459,7 @@ static void make_room()
 }
 
 /**
- * Removes the least recent used block
+ * Removes the least recently used block
  */
 static void LRU_make_room()
 {
@@ -466,9 +473,8 @@ static void LRU_make_room()
  */
 static void LFU_make_room()
 {
-	// find block to remove
+	// get block to remove
 	int block_id = block_queue.front();
-
 	remove_block(block_id);
 }
 
@@ -477,7 +483,7 @@ static void LFU_make_room()
  */
 static void FBR_make_room()
 {
-	int min_ref, new_ref, i;
+	size_t min_ref, new_ref, i;
 	// set the initial min reference number
 	int min_block_id = block_queue[0];
 	min_ref = pBlockArray[min_block_id]->reference_num;
@@ -492,20 +498,21 @@ static void FBR_make_room()
 		}
 	}
 
-	DEBUG("found block to remove; id=" << min_block_id << ", ref=" << min_ref);
 	remove_block(min_block_id);
 }
 
 /**
  * Returns an unused block id
  * id = free cell in the block array
- * @return unique block id
+ * @return unique block id, -1 if failed
  */
 static int get_free_id()
 {
-	for (int i = 0; i < MAX_BLOCKS; ++i)
+	int i;
+	for (i = 0; i < MAX_BLOCKS; ++i)
 		if (pBlockArray[i] == nullptr)
-			return i;
+			break;
+	return i;
 }
 
 /**
@@ -561,7 +568,6 @@ static void update_queue(Block* block_p)
  */
 static void remove_block(int block_id)
 {
-	DEBUG("Removing id #" << block_id);
 	// remove block from queue
 	auto block_iter = std::find(block_queue.begin(), block_queue.end(), block_id);
 	block_queue.erase(block_iter);
