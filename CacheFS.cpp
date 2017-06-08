@@ -5,7 +5,8 @@
 #include <algorithm>
 #include <deque>
 #include <iostream>
-#include <cstring>
+#include <string.h>
+#include <stdlib.h>
 #include "CacheFS.h"
 #include "Block.h"
 
@@ -163,7 +164,11 @@ int CacheFS_destroy()
  */
 int CacheFS_open(const char *pathname)
 {
-	// TODO: add /tmp path validation
+	// verify path name
+	size_t found = std::string(pathname).find(TMP_PATH);
+	if (found == std::string::npos || found > 0)
+		return -1;
+
 	// if file is open, return its file descriptor
 	for (auto fd : fd_path_map)
 		if (strcmp(pathname, fd.second.c_str()) == 0)

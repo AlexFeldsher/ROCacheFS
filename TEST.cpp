@@ -19,11 +19,11 @@ void sanityCheck()
     size_t blockSize = (size_t)fi.st_blksize;
 
     std::ofstream eraser;
-    eraser.open("/home/alex/sanity_test.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/sanity_test.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
 
     // create the files for the test:
-    std::ofstream outfile ("/home/alex/sanity_test.txt");
+    std::ofstream outfile ("/tmp/sanity_test.txt");
     for (unsigned int i=0; i<10*blockSize; i++)
     {
         outfile << "TEST ";
@@ -32,7 +32,7 @@ void sanityCheck()
 
     // run basic read tests:
     CacheFS_init(10, LRU, 0.1, 0.1);
-    int fd = CacheFS_open("/home/alex/sanity_test.txt");
+    int fd = CacheFS_open("/tmp/sanity_test.txt");
 
     char data[11] = "\0";
     CacheFS_pread(fd, &data, 10, 0); // read from beginning of block
@@ -46,27 +46,27 @@ void sanityCheck()
     CacheFS_pread(fd, &data, 10, 5*blockSize + 4); // read from middle of block
     if (strcmp(data, " TEST TEST")) {ok = false;}
 
-    eraser.open("/home/alex/sanity_test_cache.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/sanity_test_cache.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
 
     // review cache:
-    CacheFS_print_cache("/home/alex/sanity_test_cache.txt");
+    CacheFS_print_cache("/tmp/sanity_test_cache.txt");
     std::ifstream resultsFileInput;
-    resultsFileInput.open("/home/alex/sanity_test_cache.txt");
+    resultsFileInput.open("/tmp/sanity_test_cache.txt");
     char cacheResults[10000] = "\0";
     if (resultsFileInput.is_open()) {
         resultsFileInput.read(cacheResults, 10000);
 
-        if (strcmp(cacheResults, "/home/alex/sanity_test.txt 5\n/home/alex/sanity_test.txt 0\n")) {ok = false;}
+        if (strcmp(cacheResults, "/tmp/sanity_test.txt 5\n/tmp/sanity_test.txt 0\n")) {ok = false;}
     }
     resultsFileInput.close();
 
-    eraser.open("/home/alex/sanity_test_stats.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/sanity_test_stats.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
 
     // review stats:
-    CacheFS_print_stat("/home/alex/sanity_test_stats.txt");
-    resultsFileInput.open("/home/alex/sanity_test_stats.txt");
+    CacheFS_print_stat("/tmp/sanity_test_stats.txt");
+    resultsFileInput.open("/tmp/sanity_test_stats.txt");
     char statsResults[10000] = "\0";
     if (resultsFileInput.is_open()) {
         resultsFileInput.read(statsResults, 10000);
@@ -101,7 +101,7 @@ void doubleOpenClose()
     size_t blockSize = (size_t)fi.st_blksize;
 
     // create the files for the test:
-    std::ofstream outfile ("/home/alex/double_test.txt");
+    std::ofstream outfile ("/tmp/double_test.txt");
     for (unsigned int i=0; i<10*blockSize; i++)
     {
         outfile << "TEST ";
@@ -110,8 +110,8 @@ void doubleOpenClose()
 
     // open and read from the file using two file descriptors:
     CacheFS_init(10, LRU, 0.1, 0.1);
-    int fd1 = CacheFS_open("/home/alex/double_test.txt");
-    int fd2 = CacheFS_open("/home/alex/double_test.txt");
+    int fd1 = CacheFS_open("/tmp/double_test.txt");
+    int fd2 = CacheFS_open("/tmp/double_test.txt");
 
     char data[11];
     data[10] = '\0';
@@ -120,14 +120,14 @@ void doubleOpenClose()
 
     // check that we have one hit:
     std::ofstream eraser;
-    eraser.open("/home/alex/test_double_open.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/test_double_open.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
 
     // review cache:
     char results[10000] = "\0";
-    CacheFS_print_stat("/home/alex/test_double_open.txt");
+    CacheFS_print_stat("/tmp/test_double_open.txt");
     std::ifstream resultsFileInput;
-    resultsFileInput.open("/home/alex/test_double_open.txt");
+    resultsFileInput.open("/tmp/test_double_open.txt");
     if (resultsFileInput.is_open()) {
         resultsFileInput.read(results, 10000);
         if (!(!strcmp(results, "Hits number: 1.\nMisses number: 1.\n") || !strcmp(results, "Hits number: 1\nMisses number: 1\n")))
@@ -161,9 +161,9 @@ void offsetTooBig()
 
     // create the files for the test:
     std::ofstream eraser;
-    eraser.open("/home/alex/offset_test.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/offset_test.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
-    std::ofstream outfile ("/home/alex/offset_test.txt");
+    std::ofstream outfile ("/tmp/offset_test.txt");
     for (unsigned int i=0; i<blockSize/2; i++)
     {
         outfile << "A";
@@ -172,7 +172,7 @@ void offsetTooBig()
 
     // open and read from the file with an offset that is too big:
     CacheFS_init(10, LRU, 0.1, 0.1);
-    int fd = CacheFS_open("/home/alex/offset_test.txt");
+    int fd = CacheFS_open("/tmp/offset_test.txt");
 
     char data[11] = "\0";
     int ret = CacheFS_pread(fd, &data, 10, blockSize); // the offset is larger than the file size
@@ -209,13 +209,13 @@ void basicLRU()
     size_t blockSize = (size_t)fi.st_blksize;
 
     // create the files for the test:
-    std::ofstream outfile1 ("/home/alex/LRU1.txt");
+    std::ofstream outfile1 ("/tmp/LRU1.txt");
     for (unsigned int i=0; i<5*blockSize; i++)
     {
         outfile1 << "A";
     }
     outfile1.close();
-    std::ofstream outfile2 ("/home/alex/LRU2.txt");
+    std::ofstream outfile2 ("/tmp/LRU2.txt");
     for (unsigned int i=0; i<5*blockSize; i++)
     {
         outfile2 << "B";
@@ -223,12 +223,12 @@ void basicLRU()
     outfile2.close();
 
     std::ofstream eraser;
-    eraser.open("/home/alex/LRU_cache.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/LRU_cache.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
 
     CacheFS_init(5, LRU, 0.1, 0.1);
-    int fd1 = CacheFS_open("/home/alex/LRU1.txt");
-    int fd2 = CacheFS_open("/home/alex/LRU2.txt");
+    int fd1 = CacheFS_open("/tmp/LRU1.txt");
+    int fd2 = CacheFS_open("/tmp/LRU2.txt");
 
     char data[11];
     CacheFS_pread(fd1, &data, 10, 0*blockSize);
@@ -236,33 +236,33 @@ void basicLRU()
     CacheFS_pread(fd1, &data, 10, 2*blockSize);
     CacheFS_pread(fd1, &data, 10, 3*blockSize);
     CacheFS_pread(fd1, &data, 10, 4*blockSize);
-    CacheFS_print_cache("/home/alex/LRU_cache.txt");
+    CacheFS_print_cache("/tmp/LRU_cache.txt");
     CacheFS_pread(fd1, &data, 10, 0*blockSize);
-    CacheFS_print_cache("/home/alex/LRU_cache.txt");
+    CacheFS_print_cache("/tmp/LRU_cache.txt");
     CacheFS_pread(fd2, &data, 10, 3*blockSize);
-    CacheFS_print_cache("/home/alex/LRU_cache.txt");
+    CacheFS_print_cache("/tmp/LRU_cache.txt");
 
     // review cache:
     std::ifstream resultsFileInput;
-    resultsFileInput.open("/home/alex/LRU_cache.txt");
+    resultsFileInput.open("/tmp/LRU_cache.txt");
     char cacheResults[10000] = "\0";
     if (resultsFileInput.is_open()) {
         resultsFileInput.read(cacheResults, 10000);
 
-        char cacheCorrect[] = "/home/alex/LRU1.txt 4\n/home/alex/LRU1.txt 3\n/home/alex/LRU1.txt 2\n/home/alex/LRU1.txt 1\n/home/alex/LRU1.txt 0\n"
-                             "/home/alex/LRU1.txt 0\n/home/alex/LRU1.txt 4\n/home/alex/LRU1.txt 3\n/home/alex/LRU1.txt 2\n/home/alex/LRU1.txt 1\n"
-                             "/home/alex/LRU2.txt 3\n/home/alex/LRU1.txt 0\n/home/alex/LRU1.txt 4\n/home/alex/LRU1.txt 3\n/home/alex/LRU1.txt 2\n";
+        char cacheCorrect[] = "/tmp/LRU1.txt 4\n/tmp/LRU1.txt 3\n/tmp/LRU1.txt 2\n/tmp/LRU1.txt 1\n/tmp/LRU1.txt 0\n"
+                             "/tmp/LRU1.txt 0\n/tmp/LRU1.txt 4\n/tmp/LRU1.txt 3\n/tmp/LRU1.txt 2\n/tmp/LRU1.txt 1\n"
+                             "/tmp/LRU2.txt 3\n/tmp/LRU1.txt 0\n/tmp/LRU1.txt 4\n/tmp/LRU1.txt 3\n/tmp/LRU1.txt 2\n";
 
         if (strcmp(cacheResults, cacheCorrect)) {ok = false;}
     }
     resultsFileInput.close();
 
-    eraser.open("/home/alex/LRU_stats.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/LRU_stats.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
 
     // review stats:
-    CacheFS_print_stat("/home/alex/LRU_stats.txt");
-    resultsFileInput.open("/home/alex/LRU_stats.txt");
+    CacheFS_print_stat("/tmp/LRU_stats.txt");
+    resultsFileInput.open("/tmp/LRU_stats.txt");
     char statsResults[10000] = "\0";
     if (resultsFileInput.is_open()) {
         resultsFileInput.read(statsResults, 10000);
@@ -299,13 +299,13 @@ void basicLFU()
     size_t blockSize = (size_t)fi.st_blksize;
 
     // create the files for the test:
-    std::ofstream outfile1 ("/home/alex/LFU1.txt");
+    std::ofstream outfile1 ("/tmp/LFU1.txt");
     for (unsigned int i=0; i<5*blockSize; i++)
     {
         outfile1 << "A";
     }
     outfile1.close();
-    std::ofstream outfile2 ("/home/alex/LFU2.txt");
+    std::ofstream outfile2 ("/tmp/LFU2.txt");
     for (unsigned int i=0; i<5*blockSize; i++)
     {
         outfile2 << "B";
@@ -313,14 +313,14 @@ void basicLFU()
     outfile2.close();
 
     std::ofstream eraser;
-    eraser.open("/home/alex/LFU_cache.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/LFU_cache.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
-    eraser.open("/home/alex/LFU_stats.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/LFU_stats.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
 
     CacheFS_init(5, LFU, 0.1, 0.1);
-    int fd1 = CacheFS_open("/home/alex/LFU1.txt");
-    int fd2 = CacheFS_open("/home/alex/LFU2.txt");
+    int fd1 = CacheFS_open("/tmp/LFU1.txt");
+    int fd2 = CacheFS_open("/tmp/LFU2.txt");
 
     char data[11];
 
@@ -340,13 +340,13 @@ void basicLFU()
     CacheFS_pread(fd1, &data, 10, 2*blockSize);
     CacheFS_pread(fd1, &data, 10, 3*blockSize);
     CacheFS_pread(fd1, &data, 10, 4*blockSize);
-    CacheFS_print_cache("/home/alex/LFU_cache.txt");
+    CacheFS_print_cache("/tmp/LFU_cache.txt");
 
     // these should all be misses:
     CacheFS_pread(fd2, &data, 10, 0*blockSize);
-    CacheFS_print_cache("/home/alex/LFU_cache.txt");
+    CacheFS_print_cache("/tmp/LFU_cache.txt");
     CacheFS_pread(fd2, &data, 10, 1*blockSize);
-    CacheFS_print_cache("/home/alex/LFU_cache.txt");
+    CacheFS_print_cache("/tmp/LFU_cache.txt");
     CacheFS_pread(fd2, &data, 10, 0*blockSize);
     CacheFS_pread(fd2, &data, 10, 1*blockSize);
     CacheFS_pread(fd2, &data, 10, 0*blockSize);
@@ -357,18 +357,18 @@ void basicLFU()
     CacheFS_pread(fd2, &data, 10, 1*blockSize);
 
     // get the results:
-    CacheFS_print_stat("/home/alex/LFU_stats.txt");
+    CacheFS_print_stat("/tmp/LFU_stats.txt");
 
     // review cache:
     std::ifstream resultsFileInput;
-    resultsFileInput.open("/home/alex/LFU_cache.txt");
+    resultsFileInput.open("/tmp/LFU_cache.txt");
     char cacheResults[10000] = "\0";
     if (resultsFileInput.is_open()) {
         resultsFileInput.read(cacheResults, 10000);
 
-        char cacheCorrect[] = "/home/alex/LFU1.txt 4\n/home/alex/LFU1.txt 3\n/home/alex/LFU1.txt 2\n/home/alex/LFU1.txt 1\n/home/alex/LFU1.txt 0\n"
-                              "/home/alex/LFU1.txt 4\n/home/alex/LFU1.txt 3\n/home/alex/LFU1.txt 2\n/home/alex/LFU1.txt 1\n/home/alex/LFU2.txt 0\n"
-                              "/home/alex/LFU1.txt 4\n/home/alex/LFU1.txt 3\n/home/alex/LFU1.txt 2\n/home/alex/LFU1.txt 1\n/home/alex/LFU2.txt 1\n";
+        char cacheCorrect[] = "/tmp/LFU1.txt 4\n/tmp/LFU1.txt 3\n/tmp/LFU1.txt 2\n/tmp/LFU1.txt 1\n/tmp/LFU1.txt 0\n"
+                              "/tmp/LFU1.txt 4\n/tmp/LFU1.txt 3\n/tmp/LFU1.txt 2\n/tmp/LFU1.txt 1\n/tmp/LFU2.txt 0\n"
+                              "/tmp/LFU1.txt 4\n/tmp/LFU1.txt 3\n/tmp/LFU1.txt 2\n/tmp/LFU1.txt 1\n/tmp/LFU2.txt 1\n";
 
         if (strcmp(cacheResults, cacheCorrect)) {
 
@@ -380,7 +380,7 @@ void basicLFU()
     resultsFileInput.close();
 
     // review stats:
-    resultsFileInput.open("/home/alex/LFU_stats.txt");
+    resultsFileInput.open("/tmp/LFU_stats.txt");
     char statsResults[10000] = "\0";
     if (resultsFileInput.is_open()) {
         resultsFileInput.read(statsResults, 10000);
@@ -416,13 +416,13 @@ void basicFBR()
     size_t blockSize = (size_t)fi.st_blksize;
 
     // create the files for the test:
-    std::ofstream outfile1 ("/home/alex/FBR1.txt");
+    std::ofstream outfile1 ("/tmp/FBR1.txt");
     for (unsigned int i=0; i<10*blockSize; i++)
     {
         outfile1 << "A";
     }
     outfile1.close();
-    std::ofstream outfile2 ("/home/alex/FBR2.txt");
+    std::ofstream outfile2 ("/tmp/FBR2.txt");
     for (unsigned int i=0; i<10*blockSize; i++)
     {
         outfile2 << "B";
@@ -430,19 +430,19 @@ void basicFBR()
     outfile2.close();
 
     std::ofstream eraser;
-    eraser.open("/home/alex/FBR_cache0.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/FBR_cache0.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
-    eraser.open("/home/alex/FBR_cache1.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/FBR_cache1.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
-    eraser.open("/home/alex/FBR_stats0.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/FBR_stats0.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
-    eraser.open("/home/alex/FBR_stats1.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/FBR_stats1.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
 
     // test that reading a block from "new" doens't increase the frequency:
     CacheFS_init(10, FBR, 0.3, 0.3);
-    int fd1 = CacheFS_open("/home/alex/FBR1.txt");
-    int fd2 = CacheFS_open("/home/alex/FBR2.txt");
+    int fd1 = CacheFS_open("/tmp/FBR1.txt");
+    int fd2 = CacheFS_open("/tmp/FBR2.txt");
     char data[11];
 
     CacheFS_pread(fd1, &data, 10, 0*blockSize);
@@ -460,8 +460,8 @@ void basicFBR()
     CacheFS_pread(fd1, &data, 10, 8*blockSize);
     CacheFS_pread(fd1, &data, 10, 9*blockSize);
     CacheFS_pread(fd2, &data, 10, 5*blockSize);
-    CacheFS_print_cache("/home/alex/FBR_cache0.txt");
-    CacheFS_print_stat("/home/alex/FBR_stats0.txt");
+    CacheFS_print_cache("/tmp/FBR_cache0.txt");
+    CacheFS_print_stat("/tmp/FBR_stats0.txt");
 
     CacheFS_close(fd1);
     CacheFS_close(fd2);
@@ -470,8 +470,8 @@ void basicFBR()
 
     // test that the lowest frequency from "old" is removed, and not the oldest one in "old":
     CacheFS_init(10, FBR, 0.3, 0.3);
-    fd1 = CacheFS_open("/home/alex/FBR1.txt");
-    fd2 = CacheFS_open("/home/alex/FBR2.txt");
+    fd1 = CacheFS_open("/tmp/FBR1.txt");
+    fd2 = CacheFS_open("/tmp/FBR2.txt");
 
     CacheFS_pread(fd1, &data, 10, 0*blockSize); // read #1
     CacheFS_pread(fd1, &data, 10, 1*blockSize);
@@ -487,7 +487,7 @@ void basicFBR()
     CacheFS_pread(fd1, &data, 10, 9*blockSize);
     CacheFS_pread(fd1, &data, 10, 1*blockSize);
     CacheFS_pread(fd1, &data, 10, 2*blockSize);
-    CacheFS_print_cache("/home/alex/FBR_cache1.txt");
+    CacheFS_print_cache("/tmp/FBR_cache1.txt");
     CacheFS_pread(fd1, &data, 10, 3*blockSize);
     CacheFS_pread(fd1, &data, 10, 4*blockSize);
     CacheFS_pread(fd1, &data, 10, 5*blockSize);
@@ -496,8 +496,8 @@ void basicFBR()
     CacheFS_pread(fd2, &data, 10, 0*blockSize);
     CacheFS_pread(fd2, &data, 10, 1*blockSize);
     CacheFS_pread(fd2, &data, 10, 2*blockSize);
-    CacheFS_print_cache("/home/alex/FBR_cache1.txt");
-    CacheFS_print_stat("/home/alex/FBR_stats1.txt");
+    CacheFS_print_cache("/tmp/FBR_cache1.txt");
+    CacheFS_print_stat("/tmp/FBR_stats1.txt");
 
     CacheFS_close(fd1);
     CacheFS_close(fd2);
@@ -507,26 +507,26 @@ void basicFBR()
     // review cache:
     std::ifstream resultsFileInput;
     char cacheResults[10000] = "\0";
-    resultsFileInput.open("/home/alex/FBR_cache0.txt");
+    resultsFileInput.open("/tmp/FBR_cache0.txt");
 	if (resultsFileInput.is_open()) {
 		resultsFileInput.read(cacheResults, 10000);
 
-		char cacheCorrect[] = "/home/alex/FBR2.txt 5\n/home/alex/FBR1.txt 9\n/home/alex/FBR1.txt 8\n/home/alex/FBR1.txt 7\n/home/alex/FBR1.txt 6\n"
-							  "/home/alex/FBR1.txt 5\n/home/alex/FBR1.txt 4\n/home/alex/FBR1.txt 3\n/home/alex/FBR1.txt 2\n/home/alex/FBR1.txt 1\n";
+		char cacheCorrect[] = "/tmp/FBR2.txt 5\n/tmp/FBR1.txt 9\n/tmp/FBR1.txt 8\n/tmp/FBR1.txt 7\n/tmp/FBR1.txt 6\n"
+							  "/tmp/FBR1.txt 5\n/tmp/FBR1.txt 4\n/tmp/FBR1.txt 3\n/tmp/FBR1.txt 2\n/tmp/FBR1.txt 1\n";
 
 		if (strcmp(cacheResults, cacheCorrect)) {
 			ok = false;}
 	}
 	resultsFileInput.close();
 
-    resultsFileInput.open("/home/alex/FBR_cache1.txt");
+    resultsFileInput.open("/tmp/FBR_cache1.txt");
     if (resultsFileInput.is_open()) {
         resultsFileInput.read(cacheResults, 10000);
 
-        char cacheCorrect[] = "/home/alex/FBR1.txt 2\n/home/alex/FBR1.txt 1\n/home/alex/FBR1.txt 9\n/home/alex/FBR1.txt 8\n/home/alex/FBR1.txt 7\n"
-                              "/home/alex/FBR1.txt 0\n/home/alex/FBR1.txt 6\n/home/alex/FBR1.txt 5\n/home/alex/FBR1.txt 4\n/home/alex/FBR1.txt 3\n"
-                              "/home/alex/FBR2.txt 2\n/home/alex/FBR2.txt 1\n/home/alex/FBR2.txt 0\n/home/alex/FBR1.txt 6\n/home/alex/FBR1.txt 5\n"
-                              "/home/alex/FBR1.txt 4\n/home/alex/FBR1.txt 3\n/home/alex/FBR1.txt 2\n/home/alex/FBR1.txt 1\n/home/alex/FBR1.txt 0\n";
+        char cacheCorrect[] = "/tmp/FBR1.txt 2\n/tmp/FBR1.txt 1\n/tmp/FBR1.txt 9\n/tmp/FBR1.txt 8\n/tmp/FBR1.txt 7\n"
+                              "/tmp/FBR1.txt 0\n/tmp/FBR1.txt 6\n/tmp/FBR1.txt 5\n/tmp/FBR1.txt 4\n/tmp/FBR1.txt 3\n"
+                              "/tmp/FBR2.txt 2\n/tmp/FBR2.txt 1\n/tmp/FBR2.txt 0\n/tmp/FBR1.txt 6\n/tmp/FBR1.txt 5\n"
+                              "/tmp/FBR1.txt 4\n/tmp/FBR1.txt 3\n/tmp/FBR1.txt 2\n/tmp/FBR1.txt 1\n/tmp/FBR1.txt 0\n";
         
         if (strcmp(cacheResults, cacheCorrect)) {
             ok = false;}
@@ -534,7 +534,7 @@ void basicFBR()
     resultsFileInput.close();
 
     // review stats:
-    resultsFileInput.open("/home/alex/FBR_stats0.txt");
+    resultsFileInput.open("/tmp/FBR_stats0.txt");
     char statsResults[10000] = "\0";
     if (resultsFileInput.is_open()) {
         resultsFileInput.read(statsResults, 10000);
@@ -548,7 +548,7 @@ void basicFBR()
     }
     resultsFileInput.close();
 
-    resultsFileInput.open("/home/alex/FBR_stats1.txt");
+    resultsFileInput.open("/tmp/FBR_stats1.txt");
     if (resultsFileInput.is_open()) {
         resultsFileInput.read(statsResults, 10000);
 
@@ -579,13 +579,13 @@ void readSeveralBlocksAtOnce()
     size_t blockSize = (size_t)fi.st_blksize;
 
     // create the files for the test:
-    std::ofstream outfile1 ("/home/alex/Several1.txt");
+    std::ofstream outfile1 ("/tmp/Several1.txt");
     for (unsigned int i=0; i<10*blockSize; i++)
     {
         outfile1 << "A";
     }
     outfile1.close();
-    std::ofstream outfile2 ("/home/alex/Several2.txt");
+    std::ofstream outfile2 ("/tmp/Several2.txt");
     for (unsigned int i=0; i<10*blockSize; i++)
     {
         outfile2 << "B";
@@ -593,41 +593,41 @@ void readSeveralBlocksAtOnce()
     outfile2.close();
 
     std::ofstream eraser;
-    eraser.open("/home/alex/Several_cache.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/Several_cache.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
 
     CacheFS_init(3, LRU, 0.1, 0.1);
-    int fd1 = CacheFS_open("/home/alex/Several1.txt");
-    int fd2 = CacheFS_open("/home/alex/Several2.txt");
+    int fd1 = CacheFS_open("/tmp/Several1.txt");
+    int fd2 = CacheFS_open("/tmp/Several2.txt");
 
     char data[3*blockSize] = "\0";
     CacheFS_pread(fd1, &data, 2*blockSize + 10, 0*blockSize); // read three blocks at once
-    CacheFS_print_cache("/home/alex/Several_cache.txt");
+    CacheFS_print_cache("/tmp/Several_cache.txt");
     CacheFS_pread(fd1, &data, 2*blockSize + 10, 2*blockSize); // read three blocks at once (one already in cache)
-    CacheFS_print_cache("/home/alex/Several_cache.txt");
+    CacheFS_print_cache("/tmp/Several_cache.txt");
     CacheFS_pread(fd1, &data, 2*blockSize + 10, 0*blockSize); // read three blocks at once (one should be in cache but evicted because we read the blocks one by one)
-    CacheFS_print_cache("/home/alex/Several_cache.txt");
+    CacheFS_print_cache("/tmp/Several_cache.txt");
 
     // review cache:
     std::ifstream resultsFileInput;
-    resultsFileInput.open("/home/alex/Several_cache.txt");
+    resultsFileInput.open("/tmp/Several_cache.txt");
     char cacheResults[10000] = "\0";
     if (resultsFileInput.is_open()) {
         resultsFileInput.read(cacheResults, 10000);
 
-        char cacheCorrect[] = "/home/alex/Several1.txt 2\n/home/alex/Several1.txt 1\n/home/alex/Several1.txt 0\n/home/alex/Several1.txt 4\n"
-                              "/home/alex/Several1.txt 3\n/home/alex/Several1.txt 2\n/home/alex/Several1.txt 2\n/home/alex/Several1.txt 1\n/home/alex/Several1.txt 0\n";
+        char cacheCorrect[] = "/tmp/Several1.txt 2\n/tmp/Several1.txt 1\n/tmp/Several1.txt 0\n/tmp/Several1.txt 4\n"
+                              "/tmp/Several1.txt 3\n/tmp/Several1.txt 2\n/tmp/Several1.txt 2\n/tmp/Several1.txt 1\n/tmp/Several1.txt 0\n";
 
         if (strcmp(cacheResults, cacheCorrect)) {ok = false;}
     }
     resultsFileInput.close();
 
-    eraser.open("/home/alex/Several_stats.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/Several_stats.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
 
     // review stats:
-    CacheFS_print_stat("/home/alex/Several_stats.txt");
-    resultsFileInput.open("/home/alex/Several_stats.txt");
+    CacheFS_print_stat("/tmp/Several_stats.txt");
+    resultsFileInput.open("/tmp/Several_stats.txt");
     char statsResults[10000] = "\0";
     if (resultsFileInput.is_open()) {
         resultsFileInput.read(statsResults, 10000);
@@ -664,13 +664,13 @@ void stressTest()
     size_t blockSize = (size_t)fi.st_blksize;
 
     // create the files for the test:
-    std::ofstream outfile1 ("/home/alex/stress1.txt");
+    std::ofstream outfile1 ("/tmp/stress1.txt");
     for (unsigned int i=0; i<10*blockSize; i++)
     {
         outfile1 << "A";
     }
     outfile1.close();
-    std::ofstream outfile2 ("/home/alex/stress2.txt");
+    std::ofstream outfile2 ("/tmp/stress2.txt");
     for (unsigned int i=0; i<10*blockSize; i++)
     {
         outfile2 << "B";
@@ -680,22 +680,22 @@ void stressTest()
     std::ofstream eraser;
 
     CacheFS_init(5, LRU, 0.1, 0.1);
-    int fd1 = CacheFS_open("/home/alex/Several1.txt");
-    int fd2 = CacheFS_open("/home/alex/Several2.txt");
+    int fd1 = CacheFS_open("/tmp/Several1.txt");
+    int fd2 = CacheFS_open("/tmp/Several2.txt");
 
-    char data[10*blockSize] = "\0";
+    char data[10*blockSize] = {'\0'};
     for (int i = 0; i<10000; i++)
     {
         CacheFS_pread(fd1, &data, 6*blockSize, 0*blockSize); // read 6 blocks again and again
     }
 
-    eraser.open("/home/alex/stress_stats.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/stress_stats.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
 
     // review stats:
     std::ifstream resultsFileInput;
-    CacheFS_print_stat("/home/alex/stress_stats.txt");
-    resultsFileInput.open("/home/alex/stress_stats.txt");
+    CacheFS_print_stat("/tmp/stress_stats.txt");
+    resultsFileInput.open("/tmp/stress_stats.txt");
     char statsResults[10000] = "\0";
     if (resultsFileInput.is_open()) {
         resultsFileInput.read(statsResults, 10000);
@@ -712,20 +712,20 @@ void stressTest()
     CacheFS_destroy();
 
     CacheFS_init(6, LRU, 0.1, 0.1);
-    fd1 = CacheFS_open("/home/alex/Several1.txt");
-    fd2 = CacheFS_open("/home/alex/Several2.txt");
+    fd1 = CacheFS_open("/tmp/Several1.txt");
+    fd2 = CacheFS_open("/tmp/Several2.txt");
 
     for (int i = 0; i<10000; i++)
     {
         CacheFS_pread(fd1, &data, 6*blockSize, 0*blockSize); // read 6 blocks again and again
     }
 
-    eraser.open("/home/alex/stress_stats_2.txt", std::ofstream::out | std::ofstream::trunc);
+    eraser.open("/tmp/stress_stats_2.txt", std::ofstream::out | std::ofstream::trunc);
     eraser.close();
 
     // review stats:
-    CacheFS_print_stat("/home/alex/stress_stats_2.txt");
-    resultsFileInput.open("/home/alex/stress_stats_2.txt");
+    CacheFS_print_stat("/tmp/stress_stats_2.txt");
+    resultsFileInput.open("/tmp/stress_stats_2.txt");
     if (resultsFileInput.is_open()) {
         resultsFileInput.read(statsResults, 10000);
 
@@ -752,8 +752,48 @@ void stressTest()
 
 }
 
+void pathTest()
+{
+	bool ok = true;
+
+    // get the block size:
+    struct stat fi;
+    stat("/tmp", &fi);
+    size_t blockSize = (size_t)fi.st_blksize;
+
+    // create the files for the test:
+    std::ofstream outfile1 ("/cs/usr/feld/Several1.txt");
+    for (unsigned int i=0; i<10*blockSize; i++)
+    {
+        outfile1 << "A";
+    }
+    outfile1.close();
+    std::ofstream outfile2 ("/cs/usr/feld/Several2.txt");
+    for (unsigned int i=0; i<10*blockSize; i++)
+    {
+        outfile2 << "B";
+    }
+    outfile2.close();
+
+    std::ofstream eraser;
+
+    CacheFS_init(5, LRU, 0.1, 0.1);
+    int fd1 = CacheFS_open("/cs/usr/feld/Several1.txt");
+    int fd2 = CacheFS_open("/cs/usr/feld/Several2.txt");
+
+    if (fd1 != -1 || fd2 != -1)
+        ok = false;
+
+    if (ok)
+        std::cout << "Path name passed!" << std::endl;
+    else
+        std::cout << "Path name failed!" << std::endl;
+
+}
+
 int main()
 {
+	pathTest();
     sanityCheck();
     doubleOpenClose();
     offsetTooBig();
