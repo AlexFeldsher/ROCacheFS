@@ -27,7 +27,7 @@
 /**
  * Log file permissions
  */
-#define LOG_PERM 0666
+#define LOG_PERMISSIONS 0666
 
 //---------------------------- global variables -----------------------------------
 /**
@@ -91,7 +91,7 @@ size_t g_miss_counter = 0;
 //--------------------------------- function definitions -----------------------------------------------
 
 static blksize_t get_block_size();
-static Block* create_block(int file_id, int block_num);
+static Block* create_block(int fd, int block_num);
 static void LRU_update_queue(Block& block_p);
 static void LFU_update_queue(Block& block_p);
 static void FBR_update_queue(Block* block_p);
@@ -101,7 +101,7 @@ static void LFU_make_room();
 static void FBR_make_room();
 static bool FBR_block_is_new(Block& block);
 static int get_free_id();
-static Block* get_block(int file_id, int block_num);
+static Block* get_block(int fd, int block_num);
 static void update_queue(Block* block_p);
 static void remove_block(int block_id);
 static off_t get_file_size(const char* path);
@@ -227,32 +227,33 @@ int CacheFS_open(const char *pathname)
 /**
  * File close operation.
  * Receives id of a file, and closes it.
- * @param file_id file to close
+ * @param cache_fd cache file descriptor
  * @return 0 if successful, otherwise -1.
  */
-int CacheFS_close(int file_id)
+int CacheFS_close(int cache_fd)
 {
 	// find file in the open files data structure
-	auto file_iter = cachefd_origfd_map.find(file_id);
+	auto file_iter = cachefd_origfd_map.find(cache_fd);
 	if (file_iter == cachefd_origfd_map.end())
 		return -1;
 
 	int orig_fd = file_iter->second;
 	cachefd_origfd_map.erase(file_iter);
 
+	// if multiple instances of the same file exist, return
 	for (auto fd : cachefd_origfd_map)
 		if (fd.second == orig_fd)
 			return 0;
 
-	auto file_i = file_block_map.find(orig_fd);
 	// close file
 	int ret = close(orig_fd);
+	if (ret == -1)
+		return -1;
 
-	if (ret != -1)
-	{
-		delete file_i->second;	// delete the file block set
-		file_block_map.erase(file_i);	// remove file descriptor from open files data structure
-	}
+	// remove file from data structures
+	auto file_i = file_block_map.find(orig_fd);
+	delete file_i->second;	// delete the file block set
+	file_block_map.erase(file_i);	// remove file descriptor from open files data structure
 
 	return 0;
 }
@@ -275,7 +276,7 @@ int CacheFS_pread(int file_id, void *buf, size_t count, off_t offset)
 	int last_block_num = ((offset + count)/BLOCK_SIZE);
 
 	size_t pos, out_index = 0;
-	int block_num, buffer_index;
+	int block_num, buffer_index, orig_fd = cachefd_origfd_map[file_id];
 	char* output_buffer = (char*) buf;
 	Block* block_p;
 
@@ -283,11 +284,11 @@ int CacheFS_pread(int file_id, void *buf, size_t count, off_t offset)
 	for (block_num = first_block_num; block_num <= last_block_num && out_index < count; ++block_num)
 	{
 		// out of file bounds check
-		if (block_num*BLOCK_SIZE > fd_size_map[cachefd_origfd_map[file_id]])
+		if (block_num*BLOCK_SIZE > fd_size_map[orig_fd])
 			break;
 
 		// get block pointer
-		block_p = get_block(cachefd_origfd_map[file_id], block_num);
+		block_p = get_block(orig_fd, block_num);
 		if (block_p == nullptr || block_p->data_size == -1)
 			return -1;
 
@@ -316,7 +317,7 @@ int CacheFS_pread(int file_id, void *buf, size_t count, off_t offset)
 int CacheFS_print_cache (const char *log_path)
 {
 	// open log file
-	int log_fd = open(log_path, O_CREAT | O_WRONLY | O_APPEND, LOG_PERM);
+	int log_fd = open(log_path, O_CREAT | O_WRONLY | O_APPEND, LOG_PERMISSIONS);
 	if (log_fd == -1)
 		return -1;
 
@@ -340,14 +341,14 @@ int CacheFS_print_cache (const char *log_path)
 }
 
 /**
- *
- * @param log_path
- * @return
+ * Print number of cache hits and missed to a given log file
+ * @param log_path path to a log file
+ * @return 0 if successful, otherwise negative integer
  */
 int CacheFS_print_stat (const char *log_path)
 {
 	// open log file
-	int log_fd = open(log_path, O_CREAT | O_WRONLY | O_APPEND, LOG_PERM);
+	int log_fd = open(log_path, O_CREAT | O_WRONLY | O_APPEND, LOG_PERMISSIONS);
 	if (log_fd == -1)
 		return -1;
 
@@ -381,11 +382,11 @@ static blksize_t get_block_size()
 
 /**
  * Creates a new block
- * @param file_id file descriptor
+ * @param fd file descriptor
  * @param block_num the number of the block
  * @return pointer to a new block, nullptr when failed
  */
-static Block* create_block(int file_id, int block_num)
+static Block* create_block(int fd, int block_num)
 {
 	Block * new_block;
 
@@ -395,7 +396,7 @@ static Block* create_block(int file_id, int block_num)
 	// create new block
 	try
 	{
-		new_block = new Block(file_id, block_num, BLOCK_SIZE, id);
+		new_block = new Block(fd, block_num, BLOCK_SIZE, id);
 	} catch (std::bad_alloc e)
 	{
 		return nullptr;
@@ -403,7 +404,7 @@ static Block* create_block(int file_id, int block_num)
 
 	// add new block to data structures
 	pBlockArray[id] = new_block;
-	file_block_map[file_id]->insert(new_block);
+	file_block_map[fd]->insert(new_block);
 
 	// increase global block counter
 	g_blocks_counter++;
@@ -535,6 +536,7 @@ static void FBR_make_room()
 	int min_block_id = block_queue[0];
 	min_ref = pBlockArray[min_block_id]->reference_num;
 	// iterate over the old partition and find the block with the min reference number
+	// the old partition is block_queue[0] up to block_queue[block_queue.size()*PART_OLD]
 	for (i = 1 ; ((double)(i + 1))/block_queue.size() <= PART_OLD && i < block_queue.size(); ++i)
 	{
 		new_ref = pBlockArray[block_queue[i]]->reference_num;
@@ -565,14 +567,14 @@ static int get_free_id()
 /**
  * Returns a pointer to the requested block
  * Creates it if needed
- * @param file_id file descriptor
+ * @param fd file descriptor
  * @param block_num the number of the block
  * @return pointer to the requested block, nullptr when failed
  */
-static Block* get_block(int file_id, int block_num)
+static Block* get_block(int fd, int block_num)
 {
 	Block* block_p;
-	std::set<Block*>& block_set = *file_block_map[file_id];
+	std::set<Block*>& block_set = *file_block_map[fd];
 
 	// find block if exists
 	auto block_iter = std::find_if(block_set.begin(), block_set.end(), [&block_num](Block* const block) {
@@ -581,11 +583,13 @@ static Block* get_block(int file_id, int block_num)
 
 	if (block_iter == block_set.end())
 	{
+		// block doesn't exist, create it
 		g_miss_counter++;
-		block_p = create_block(file_id, block_num);	// block doesn't exist, create a new block
+		block_p = create_block(fd, block_num);	// block doesn't exist, create a new block
 	}
 	else
 	{
+		// block exists, return it
 		g_hit_counter++;
 		block_p = *block_iter;
 	}
@@ -635,8 +639,8 @@ static void remove_block(int block_id)
 }
 
 /**
- * Returns the file size
- * @param fd file descriptor
+ * Returns the file size for a given file
+ * @param path path to a file
  * @return if successful the file size, otherwise -1.
  */
 static off_t get_file_size(const char* path)
@@ -657,6 +661,7 @@ static off_t get_file_size(const char* path)
 static int get_unique_cache_fd()
 {
 	static int cache_fd = 0;
+	// while cache_fd is already used
 	while (cachefd_origfd_map.find(cache_fd) != cachefd_origfd_map.end())
 	{
 		cache_fd++;
