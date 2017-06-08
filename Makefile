@@ -16,5 +16,9 @@ CacheFS.o: CacheFS.h CacheFS.h
 tar: $(FILES)
 	tar -cvf ex4.tar $(FILES)
 clean:
-	rm -f $(OBJECTS) $(LIB)
+	rm -f $(OBJECTS) $(LIB) TEST.o
+test.o: TEST.cpp CacheFS.h
+	$(CC) $(CFLAGS) -c TEST.cpp
+test: test.o $(OBJECTS)
+	$(CC) $(CacheFS) -o test.out TEST.o $(OBJECTS)
 .PHONE: clean lib tar

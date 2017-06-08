@@ -36,7 +36,9 @@ void sanityCheck()
 
     char data[11] = "\0";
     CacheFS_pread(fd, &data, 10, 0); // read from beginning of block
-    if (strcmp(data, "TEST TEST ")) {ok = false;}
+    if (strcmp(data, "TEST TEST ")) {
+        std::cout << "here" << std::endl;
+        ok = false;}
     CacheFS_pread(fd, &data, 10, 5*blockSize + 1); // read from middle of block
     if (strcmp(data, "EST TEST T")) {ok = false;}
     CacheFS_pread(fd, &data, 10, 5*blockSize + 2); // read from middle of block

@@ -19,11 +19,11 @@
 /**
  * Generates a caches misses log string
  */
-#define MISSES_LOG(x) std::string("Misses number: " + std::to_string(x) + ".\n")
+#define MISSES_LOG(x) std::string("Misses number: " + std::to_string(x) + "\n")
 /**
  * Generates a caches hits log string
  */
-#define HITS_LOG(x) std::string("Hits number: " + std::to_string(x) + ".\n")
+#define HITS_LOG(x) std::string("Hits number: " + std::to_string(x) + "\n")
 /**
  * Log file permissions
  */
@@ -59,6 +59,14 @@ Block** pBlockArray;
  * Maps file descriptors to path strings
  */
 std::map<int, std::string> fd_path_map;
+/**
+ * maps a cache fs file descriptor to its original file descriptor
+ */
+std::map<int, int> cachefd_origfd_map;
+/**
+ * Maps file descriptor to file size
+ */
+std::map<int, off_t> fd_size_map;
 /**
  * The cache fs algorithm
  */
@@ -96,22 +104,33 @@ static int get_free_id();
 static Block* get_block(int file_id, int block_num);
 static void update_queue(Block* block_p);
 static void remove_block(int block_id);
+static off_t get_file_size(const char* path);
+static int get_unique_cache_fd();
 
 //------------------------------- CacheFS functions implementation ----------------------------------
 
 /**
  * Initialize CacheFS
- * @param blocks_num
- * @param cache_algo
- * @param f_old
- * @param f_new
- * @return
+ * @param blocks_num max number of blocks
+ * @param cache_algo cache fs algorithm
+ * @param f_old old partition size in %
+ * @param f_new new partition size in %
+ * @return 0 if sucessful, otherwise -1
  */
 int CacheFS_init(int blocks_num, cache_algo_t cache_algo, double f_old , double f_new)
 {
 	BLOCK_SIZE = get_block_size();
 	if (BLOCK_SIZE == -1)
 		return -1;
+
+	// verify f_old and f_new
+	if (cache_algo == FBR)
+	{
+		if (f_new + f_new > 1)
+			return -1;
+		if (f_new < 0 || f_old < 0)
+			return -1;
+	}
 
 	// initialize global variables
 	MAX_BLOCKS = blocks_num;
@@ -133,7 +152,7 @@ int CacheFS_init(int blocks_num, cache_algo_t cache_algo, double f_old , double 
  * Destroys the CacheFS.
  * This function releases all the allocated resources by the library.
  * @return 0 in case of success, negative value in case of failure.
- * The function will fail if a system call or a library function fails.
+ * This function always succeeds
  */
 int CacheFS_destroy()
 {
@@ -147,6 +166,8 @@ int CacheFS_destroy()
 	block_queue.clear();
 	file_block_map.clear();
 	fd_path_map.clear();
+	cachefd_origfd_map.clear();
+	fd_size_map.clear();
 
 	// reset global counters
 	g_blocks_counter = 0;
@@ -169,10 +190,16 @@ int CacheFS_open(const char *pathname)
 	if (found == std::string::npos || found > 0)
 		return -1;
 
+	// get a unique cache file descriptor
+	int cache_fd = get_unique_cache_fd();
+
 	// if file is open, return its file descriptor
 	for (auto fd : fd_path_map)
 		if (strcmp(pathname, fd.second.c_str()) == 0)
-			return fd.first;
+		{
+			cachefd_origfd_map[cache_fd] = fd.first;
+			return cache_fd;
+		}
 
 	// open file
 	int fd = open(pathname, O_RDONLY | O_DIRECT | O_SYNC);
@@ -187,10 +214,14 @@ int CacheFS_open(const char *pathname)
 		return -1;
 	}
 
-	// safe file descriptor path
+	// save file descriptor path
 	fd_path_map[fd] = pathname;
+	cachefd_origfd_map[cache_fd] = fd;
+	fd_size_map[fd] = get_file_size(pathname);
+	if (fd_size_map[fd] == -1)
+		return -1;
 
-	return fd;
+	return cache_fd;
 }
 
 /**
@@ -202,17 +233,25 @@ int CacheFS_open(const char *pathname)
 int CacheFS_close(int file_id)
 {
 	// find file in the open files data structure
-	auto file_iter = file_block_map.find(file_id);
-	if (file_iter == file_block_map.end())
+	auto file_iter = cachefd_origfd_map.find(file_id);
+	if (file_iter == cachefd_origfd_map.end())
 		return -1;
 
+	int orig_fd = file_iter->second;
+	cachefd_origfd_map.erase(file_iter);
+
+	for (auto fd : cachefd_origfd_map)
+		if (fd.second == orig_fd)
+			return 0;
+
+	auto file_i = file_block_map.find(orig_fd);
 	// close file
-	int ret = close(file_id);
+	int ret = close(orig_fd);
 
 	if (ret != -1)
 	{
-		delete file_iter->second;	// delete the file block set
-		file_block_map.erase(file_iter);	// remove file descriptor from open files data structure
+		delete file_i->second;	// delete the file block set
+		file_block_map.erase(file_i);	// remove file descriptor from open files data structure
 	}
 
 	return 0;
@@ -224,8 +263,8 @@ int CacheFS_pread(int file_id, void *buf, size_t count, off_t offset)
 		return -1;
 
 	// check that the file was opened
-	auto elem = file_block_map.find(file_id);
-	if (elem == file_block_map.end())
+	auto elem = cachefd_origfd_map.find(file_id);
+	if (elem == cachefd_origfd_map.end())
 		return -1;
 
 	if (count == 0)
@@ -243,8 +282,12 @@ int CacheFS_pread(int file_id, void *buf, size_t count, off_t offset)
 	// iterate over blocks and read data
 	for (block_num = first_block_num; block_num <= last_block_num && out_index < count; ++block_num)
 	{
+		// out of file bounds check
+		if (block_num*BLOCK_SIZE > fd_size_map[cachefd_origfd_map[file_id]])
+			break;
+
 		// get block pointer
-		block_p = get_block(file_id, block_num);
+		block_p = get_block(cachefd_origfd_map[file_id], block_num);
 		if (block_p == nullptr || block_p->data_size == -1)
 			return -1;
 
@@ -292,7 +335,6 @@ int CacheFS_print_cache (const char *log_path)
 
 		log_line = "";	// reset string
 	}
-
 	int close_ret = close(log_fd);
 	return close_ret;
 }
@@ -444,7 +486,7 @@ static bool FBR_block_is_new(Block& block)
 	// last element = 0.0, first element = 1.0
 	double pos = ((double)(block_queue.size() - (i + 1)))/block_queue.size();
 
-	return (pos < PART_NEW);
+	return (pos <= PART_NEW);
 }
 
 /**
@@ -493,7 +535,7 @@ static void FBR_make_room()
 	int min_block_id = block_queue[0];
 	min_ref = pBlockArray[min_block_id]->reference_num;
 	// iterate over the old partition and find the block with the min reference number
-	for (i = 1 ; (i + 1)/block_queue.size() < PART_OLD && i < block_queue.size(); ++i)
+	for (i = 1 ; ((double)(i + 1))/block_queue.size() <= PART_OLD && i < block_queue.size(); ++i)
 	{
 		new_ref = pBlockArray[block_queue[i]]->reference_num;
 		if (new_ref < min_ref)
@@ -590,4 +632,36 @@ static void remove_block(int block_id)
 	delete block_p;
 
 	g_blocks_counter--;
+}
+
+/**
+ * Returns the file size
+ * @param fd file descriptor
+ * @return if successful the file size, otherwise -1.
+ */
+static off_t get_file_size(const char* path)
+{
+	struct stat fi;
+	int ret = stat(path, &fi);
+
+	if (ret != 0)
+		return ret;
+
+	return fi.st_size;
+}
+
+/**
+ * Returns a unique cache fs file descriptor
+ * @return unique cache fs file descriptor
+ */
+static int get_unique_cache_fd()
+{
+	static int cache_fd = 0;
+	while (cachefd_origfd_map.find(cache_fd) != cachefd_origfd_map.end())
+	{
+		cache_fd++;
+		if (cache_fd < 0)
+			cache_fd = 0;
+	}
+	return cache_fd;
 }
