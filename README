@@ -1,0 +1,26 @@
+feld
+Alexander Feldsher (310289079)
+EX: 4
+
+FILES:
+README					-- This file
+CacheFS.cpp				-- Implementation of a cache file system
+Block.h					-- Header file for a cache block
+Block.cpp				-- Cache block implementation
+Makefile				-- running make produces a CacheFS.a library
+Answers.pdf				-- Theoretical part answers
+
+Brief description:
+Cache blocks are stored in an array on the heap.
+Each block gets the a unique ID that is determined by it's place on the block array, array index = block id.
+Additionaly to the blocks data structure there are several data structures that are used to manage the cache.
+A block queue is used to manage each block state in the running cache algorithm, and determine which block
+should be removed in case a new block needs to be inserted to the cache. The same queue is used for
+all the available algorithms.
+In order to be able to handle multiple opens of the same file and internal cache file descriptor is used,
+it's the file descriptor that is returned to the used when CacheFS_open is called. A map data structure
+is used to map the cache fs file descriptor to the original file descriptor. That way if a file is opened
+multiple times it's not actually reopened and no duplicate blocks are generated.
+And two map data structures map the file descriptor to the file path and the file size.
+Each algorithm has it's own queue update function and cache block remove function, and the right functions
+are called using a simple if else statement.

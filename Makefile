@@ -1,10 +1,11 @@
 CC=g++
-CFLAGS=-Wall -Wextra -std=c++11
+CFLAGS=-std=c++11
 OBJECTS=CacheFS.o Block.o
 FILES=Makefile README CacheFS.cpp Block.h Block.cpp Answers.pdf
 LIB=CacheFS.a
 AR=ar
 ARFLAGS=rcs
+TAR_FILE=ex4.tar
 
 lib: $(OBJECTS)
 	$(AR) $(ARFLAGS) $(LIB) $(OBJECTS)
@@ -14,11 +15,7 @@ Block.o: Block.h Block.cpp
 CacheFS.o: CacheFS.h CacheFS.h
 	$(CC) $(CFLAGS) -c CacheFS.cpp
 tar: $(FILES)
-	tar -cvf ex4.tar $(FILES)
+	tar -cvf $(TAR_FILE) $(FILES)
 clean:
-	rm -f $(OBJECTS) $(LIB) TEST.o
-test.o: TEST.cpp CacheFS.h
-	$(CC) $(CFLAGS) -c TEST.cpp
-test: test.o $(OBJECTS)
-	$(CC) $(CacheFS) -o test.out TEST.o $(OBJECTS)
+	rm -f $(OBJECTS) $(LIB) $(TAR_FILE)
 .PHONE: clean lib tar
